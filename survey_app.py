@@ -434,9 +434,8 @@ select:focus, textarea:focus, input:focus {
   margin-top: 18px;
 }
 .choice input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
+  position: fixed;
+  left: -9999px;
 }
 .choice span {
   min-height: 86px;
@@ -680,7 +679,7 @@ def survey_page(msg="", selected_dept=""):
           <div class="field-grid">
             <div>
               <label class="field-label">แผนก</label>
-              <select name="department" required onchange="location.href='/survey?department=' + encodeURIComponent(this.value)">
+              <select name="department" required>
                 <option value="">เลือกแผนก</option>
                 {dept_options(selected_dept)}
               </select>
