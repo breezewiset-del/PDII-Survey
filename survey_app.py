@@ -152,6 +152,16 @@ def position_options(selected=""):
     )
 
 
+def button_group(name, values, selected=""):
+    buttons = []
+    for value in values:
+        active = " active" if value == selected else ""
+        buttons.append(
+            f'<button class="pick-button{active}" type="submit" name="{esc(name)}" value="{esc(value)}">{esc(value)}</button>'
+        )
+    return '<div class="button-grid">' + "".join(buttons) + "</div>"
+
+
 def progress_panel(selected_dept=""):
     rows, total_completed, total_target = get_progress()
     overall = percent(total_completed, total_target)
@@ -433,41 +443,31 @@ select:focus, textarea:focus, input:focus {
   gap: 12px;
   margin-top: 18px;
 }
-.choice {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 78px;
+.button-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+.pick-button {
+  width: 100%;
+  min-height: 48px;
   border: 1px solid #c7d0dd;
   border-radius: 8px;
-  background: white;
-  padding: 0 18px;
-  transition: .18s ease;
+  background: #fff;
+  color: var(--ink);
+  box-shadow: none;
+  font-weight: 900;
 }
-.choice input {
-  position: static;
-  width: 22px;
-  height: 22px;
-  margin: 0;
-  accent-color: var(--accent);
-  flex: 0 0 auto;
-}
-.choice span {
-  flex: 1;
-  display: block;
-  text-align: center;
-  font-size: 22px;
-  font-weight: 950;
-}
-.choice:has(input:checked) {
-  color: white;
+.pick-button.active {
+  color: #fff;
   border-color: var(--accent);
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  transform: translateY(-2px);
-  box-shadow: 0 16px 34px rgba(79,70,229,.24);
+  box-shadow: 0 12px 28px rgba(79,70,229,.22);
 }
-.choice:has(input:checked) input {
-  accent-color: white;
+.answer-button {
+  min-height: 78px;
+  font-size: 24px;
 }
 .progress-card {
   padding: 20px;
@@ -679,7 +679,7 @@ def landing_page():
     return layout(content)
 
 
-def survey_page(msg="", selected_dept=""):
+def survey_page(msg="", selected_dept="", selected_position=""):
     message = f'<div class="toast">{esc(msg)}</div>' if msg else ""
     content = f"""
     <main class="survey-layout">
@@ -689,33 +689,33 @@ def survey_page(msg="", selected_dept=""):
           <h2>ตอบจากประสบการณ์ทำงานจริงของท่าน</h2>
         </div>
         {message}
+        <form method="get" action="/survey">
+          <label class="field-label">เลือกแผนก</label>
+          {button_group("department", [dept for dept, _ in DEPARTMENTS], selected_dept)}
+        </form>
+        <form method="get" action="/survey">
+          <input type="hidden" name="department" value="{esc(selected_dept)}">
+          <label class="field-label">เลือกตำแหน่ง</label>
+          {button_group("position", POSITIONS, selected_position)}
+        </form>
         <form method="post" action="/survey">
-          <div class="field-grid">
-            <div>
-              <label class="field-label">แผนก</label>
-              <select name="department" required>
-                <option value="">เลือกแผนก</option>
-                {dept_options(selected_dept)}
-              </select>
-            </div>
-            <div>
-              <label class="field-label">ตำแหน่ง</label>
-              <select name="position" required>
-                <option value="">เลือกตำแหน่ง</option>
-                {position_options()}
-              </select>
-            </div>
-          </div>
+          <input type="hidden" name="department" id="departmentField" value="{esc(selected_dept)}">
+          <input type="hidden" name="position" id="positionField" value="{esc(selected_position)}">
           <section class="question-card">
             <h3>งานประจำวันของท่านมีขั้นตอนรออนุมัติเยอะเกินไปไหม ?</h3>
             <p class="hint">(ขั้นตอนซ้ำ เยอะ หรือ ช้าจนมีผลกระทบต่องาน)</p>
             <div class="choice-grid">
-              <label class="choice"><input type="radio" name="approval_wait" value="ใช่" required><span>ใช่</span></label>
-              <label class="choice"><input type="radio" name="approval_wait" value="ไม่ใช่" required><span>ไม่ใช่</span></label>
+              <button class="answer-button" type="submit" name="approval_wait" value="ใช่">ใช่</button>
+              <button class="answer-button" type="submit" name="approval_wait" value="ไม่ใช่">ไม่ใช่</button>
             </div>
           </section>
-          <button type="submit">ถัดไป</button>
         </form>
+        <script>
+          const params = new URLSearchParams(location.search);
+          document.querySelectorAll('.pick-button[name="department"]').forEach((button) => {{
+            if (button.value === "{esc(selected_dept)}") button.classList.add("active");
+          }});
+        </script>
       </section>
       {progress_panel(selected_dept)}
     </main>
@@ -959,7 +959,12 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/":
             self.send_html(landing_page())
         elif parsed.path == "/survey":
-            self.send_html(survey_page(selected_dept=params.get("department", [""])[0]))
+            self.send_html(
+                survey_page(
+                    selected_dept=params.get("department", [""])[0],
+                    selected_position=params.get("position", [""])[0],
+                )
+            )
         elif parsed.path == "/details":
             response_id = params.get("id", [""])[0]
             self.send_html(detail_page(response_id))
