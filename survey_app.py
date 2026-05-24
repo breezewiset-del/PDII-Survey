@@ -433,27 +433,41 @@ select:focus, textarea:focus, input:focus {
   gap: 12px;
   margin-top: 18px;
 }
-.choice input {
-  position: fixed;
-  left: -9999px;
-}
-.choice span {
-  min-height: 86px;
-  display: grid;
-  place-items: center;
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 78px;
   border: 1px solid #c7d0dd;
   border-radius: 8px;
   background: white;
-  font-size: 22px;
-  font-weight: 950;
+  padding: 0 18px;
   transition: .18s ease;
 }
-.choice input:checked + span {
+.choice input {
+  position: static;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  accent-color: var(--accent);
+  flex: 0 0 auto;
+}
+.choice span {
+  flex: 1;
+  display: block;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 950;
+}
+.choice:has(input:checked) {
   color: white;
   border-color: var(--accent);
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   transform: translateY(-2px);
   box-shadow: 0 16px 34px rgba(79,70,229,.24);
+}
+.choice:has(input:checked) input {
+  accent-color: white;
 }
 .progress-card {
   padding: 20px;
