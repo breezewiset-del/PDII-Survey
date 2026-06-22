@@ -13,6 +13,8 @@ from urllib.parse import parse_qs, quote, urlparse
 
 APP_DIR = Path(__file__).parent
 DB_PATH = APP_DIR / "survey_pulse.db"
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+IS_POSTGRES = bool(DATABASE_URL)
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("PORT") or os.environ.get("SURVEY_PORT", "8010"))
 ADMIN_USER = "UserAdM"
@@ -48,9 +50,22 @@ def now_iso():
 
 
 def db():
+    if IS_POSTGRES:
+        import psycopg
+        from psycopg.rows import dict_row
+
+        return psycopg.connect(DATABASE_URL, row_factory=dict_row)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def sql_params(sql):
+    return sql.replace("?", "%s") if IS_POSTGRES else sql
+
+
+def run(conn, sql, params=()):
+    return conn.execute(sql_params(sql), params)
 
 
 def init_db():
@@ -725,7 +740,8 @@ def survey_page(msg="", selected_dept="", selected_position=""):
 
 def detail_page(response_id, msg=""):
     conn = db()
-    row = conn.execute(
+    row = run(
+        conn,
         "SELECT * FROM department_survey_response WHERE id=? AND status='Pending detail'",
         (response_id,),
     ).fetchone()
@@ -903,6 +919,79 @@ def export_csv():
     return out.getvalue()
 
 
+def init_db():
+    conn = db()
+    if IS_POSTGRES:
+        run(
+            conn,
+            """
+            CREATE TABLE IF NOT EXISTS department_target (
+                department TEXT PRIMARY KEY,
+                target_count INTEGER NOT NULL
+            )
+            """,
+        )
+        run(
+            conn,
+            """
+            CREATE TABLE IF NOT EXISTS department_survey_response (
+                id SERIAL PRIMARY KEY,
+                department TEXT NOT NULL,
+                position TEXT NOT NULL,
+                approval_wait TEXT NOT NULL,
+                example_1 TEXT NOT NULL DEFAULT '',
+                example_2 TEXT NOT NULL DEFAULT '',
+                example_3 TEXT NOT NULL DEFAULT '',
+                example_4 TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                completed_at TEXT
+            )
+            """,
+        )
+    else:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS department_target (
+                department TEXT PRIMARY KEY,
+                target_count INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS department_survey_response (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                department TEXT NOT NULL,
+                position TEXT NOT NULL,
+                approval_wait TEXT NOT NULL,
+                example_1 TEXT NOT NULL DEFAULT '',
+                example_2 TEXT NOT NULL DEFAULT '',
+                example_3 TEXT NOT NULL DEFAULT '',
+                example_4 TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                completed_at TEXT
+            );
+            """
+        )
+    for dept, target in DEPARTMENTS:
+        run(
+            conn,
+            """
+            INSERT INTO department_target(department, target_count)
+            VALUES (?, ?)
+            ON CONFLICT(department) DO UPDATE SET target_count=excluded.target_count
+            """,
+            (dept, target),
+        )
+    run(
+        conn,
+        "DELETE FROM department_target WHERE department NOT IN (%s)"
+        % ",".join("?" for _ in DEPARTMENTS),
+        [dept for dept, _ in DEPARTMENTS],
+    )
+    conn.commit()
+    conn.close()
+
+
 class Handler(BaseHTTPRequestHandler):
     def send_html(self, content, status=HTTPStatus.OK):
         data = content.encode("utf-8")
@@ -1014,16 +1103,26 @@ class Handler(BaseHTTPRequestHandler):
         conn = db()
         status = "Pending detail" if answer == "ใช่" else "Completed"
         completed_at = None if answer == "ใช่" else now_iso()
-        cur = conn.execute(
-            """
+        insert_sql = """
             INSERT INTO department_survey_response(
                 department, position, approval_wait, status, started_at, completed_at
             )
             VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (department, position, answer, status, now_iso(), completed_at),
-        )
-        response_id = cur.lastrowid
+        """
+        if IS_POSTGRES:
+            insert_sql += " RETURNING id"
+            response_id = run(
+                conn,
+                insert_sql,
+                (department, position, answer, status, now_iso(), completed_at),
+            ).fetchone()["id"]
+        else:
+            cur = run(
+                conn,
+                insert_sql,
+                (department, position, answer, status, now_iso(), completed_at),
+            )
+            response_id = cur.lastrowid
         conn.commit()
         conn.close()
 
@@ -1040,7 +1139,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_html(detail_page(response_id, "กรุณายกตัวอย่างอย่างน้อย 1 ช่อง"), HTTPStatus.BAD_REQUEST)
             return
         conn = db()
-        conn.execute(
+        run(
+            conn,
             """
             UPDATE department_survey_response
             SET example_1=?, example_2=?, example_3=?, example_4=?,
